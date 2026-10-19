@@ -12,8 +12,8 @@ import time
 
 from rpi_hardware_pwm import HardwarePWM
 
-pwm = HardwarePWM(pwm_channel=0, hz=1)
-pwm.start(0)
+#pwm = HardwarePWM(pwm_channel=0, hz=1)
+#pwm.start(0)
 
 ################ VARIÁVEIS ESTÁTICAS
 
@@ -40,14 +40,17 @@ IST_PGE_BYTES =     """/9j/4AAQSkZJRgABAQEAYABgAAD/4QAiRXhpZgAATU0AKgAAAAgAAQESA
 
 NOTEBOOK_FRAMES =   ["Configurações",
                      "Medição",
+                     "Terminal",
                      "Créditos"]
 
 TITLE_FRAMES =      ["Configurações",
                      "Medição",
+                     "Terminal",
                      "Créditos"]
 
 CANVAS_DIMS =       [(500, 1600),
                      (150, 1600),
+                     (700, 1600),
                      (1600, 150)]
 
 FRAME_PARAMS_TEXT = ["Selecione a porta COM",
@@ -121,7 +124,7 @@ def _send_to_sr620(command, label):
     
     port = COM_SELECTED.get()
     if not port:
-        messagebox.showwarning(label, "Selecione uma porta COM primeiro.")
+        messagebox.showwarning(label, "Selecione uma porta COM.")
         return None
 
     try:
@@ -182,7 +185,7 @@ def Configura_SR620():
     _send_to_sr620(
         'DREL0\nSTOP\nMODE0\nGATE0\nARMM1\nSRCE0\nSIZE1\n*TRG\n'
         'TCPL 1,0\nTCPL 2,0\nTSLP 1,0\nTSLP 2,1\n'
-        'TERM 1,1\nTERM 2,1\nLEVL 1,0.74\nLEVL 2,0.29\n',
+        'TERM 1,1\nTERM 2,1\nLEVL 1,0.74\nLEVL 2,0.29\nDISP 0\n',
         "Configurar"
     )
 
@@ -229,6 +232,12 @@ def on_refresh_click():
         config_button.config(state="normal")
         start_button.config(state="normal")
         stop_button.config(state="normal")
+        terminal_send_button.config(state="normal")
+        terminal_stop_button.config(state="normal")
+        terminal_strt_button.config(state="normal")
+        terminal_xavg_button.config(state="normal")
+        terminal_limpar_button.config(state="normal")
+        terminal_idn_button.config(state="normal")
     else:
         CHECK_PREP = False
         port_combobox.config(state="disabled")
@@ -236,6 +245,13 @@ def on_refresh_click():
         config_button.config(state="disabled")
         start_button.config(state="disabled")
         stop_button.config(state="disabled")
+        terminal_send_button.config(state="disabled")
+        terminal_send_button.config(state="disabled")
+        terminal_stop_button.config(state="disabled")
+        terminal_strt_button.config(state="disabled")
+        terminal_xavg_button.config(state="disabled")
+        terminal_limpar_button.config(state="disabled")
+        terminal_idn_button.config(state="disabled")
 
 def _update_camera():
     global _cam_photo
@@ -249,8 +265,6 @@ def _update_camera():
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame)
         _cam_photo = ImageTk.PhotoImage(image=img)
-        # cam_canvas.delete("all")
-        # cam_canvas.create_image(0, 0, anchor='nw', image=_cam_photo)
 
     SACC_root.after(CAM_FPS_DELAY, _update_camera)
 
@@ -295,9 +309,8 @@ def _sr620_worker(port, trigger_event, result_queue, stop_event, cmd_queue):
                 trigger_event.clear()
                 
                 try:
-                    ser.write(b'STRT;*WAI;XAVG?\n')
+                    ser.write(b'XAVG?\n')
                     line = ser.readline().decode('utf-8', errors='ignore').strip()
-                    #print('line',line)
                     if line:
                         result_queue.put(("value", line))
                     else:
@@ -409,10 +422,30 @@ def Inicia_Medicao():
                 while True:
                     kind, payload = sr620_results.get_nowait()
                     if kind == "value":
-                        ultima_medicao = payload
-                        print(f"[SR620] {payload}")
-                        medicoes.append(ultima_medicao)
-                        _log_medicao(f"{len(medicoes):03d}: {payload}", tag='value')
+                        if ultima_medicao == payload:
+                            #print('REPETIDO')
+                            pass
+                        else:
+                            ultima_medicao = payload
+                            if 'S' not in payload:
+                                if 'E' in payload:
+                                    print('EZÃO')
+                                    payload_val, payload_mult = payload.split('E')
+                                    payload = (float(payload_val) * (10 ** float(payload_mult)))
+                                    payload = str(payload).replace('.',',')
+                                    print(f"[SR620] {payload}")
+                                    medicoes.append(ultima_medicao)
+                                    _log_medicao(f"{len(medicoes):03d}: {payload}", tag='value')
+                            
+                                elif 'e' in payload:
+                                    print('ezinho')
+                                    payload_val, payload_mult = payload.split('e')
+                                    payload = (float(payload_val) * (10 ** float(payload_mult)))
+                                    payload = str(payload).replace('.',',')
+                                    print(f"[SR620] {payload}")
+                                    medicoes.append(ultima_medicao)
+                                    _log_medicao(f"{len(medicoes):03d}: {payload}", tag='value')
+                            
                     elif kind == "error":
                         print(f"[SR620 erro] {payload}")
                         _log_medicao(f"[erro] {payload}", tag='error')
@@ -478,6 +511,89 @@ def _clear_log_medicoes():
     medicoes_text.delete('1.0', 'end')
     medicoes_text.configure(state='disabled')
 
+################ TERMINAL FUNCTIONS
+
+def _terminal_log(texto, tag='rx'):
+    """Escreve uma linha no log do terminal."""
+    terminal_text.configure(state='normal')
+    terminal_text.insert('end', texto + '\n', tag)
+    terminal_text.see('end')
+    terminal_text.configure(state='disabled')
+
+def _clear_terminal():
+    terminal_text.configure(state='normal')
+    terminal_text.delete('1.0', 'end')
+    terminal_text.configure(state='disabled')
+
+def _terminal_send():
+    """Envia o comando digitado para o SR620."""
+    cmd = terminal_entry.get().strip()
+    if not cmd:
+        return
+
+    port = COM_SELECTED.get()
+    if not port:
+        messagebox.showwarning("Terminal", "Selecione uma porta COM primeiro.")
+        return
+
+    if _medicao_ativa.is_set():
+        messagebox.showwarning("Terminal", "Pare a medição antes de usar o terminal.")
+        return
+
+    terminal_entry.delete(0, tk.END)
+    _terminal_log(f">>> {cmd}", tag='tx')
+
+    try:
+        with serial.Serial(
+            port=port,
+            baudrate=9600,
+            bytesize=8,
+            parity='N',
+            stopbits=1,
+            timeout=1,
+            write_timeout=2,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+        ) as ser:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
+            ser.write((cmd + '\n').encode('ascii'))
+            ser.flush()
+
+            # lê a resposta por um curto período
+            deadline = time.time() + 1.0
+            got_any = False
+            while time.time() < deadline:
+                try:
+                    line = ser.readline().decode('utf-8', errors='ignore').rstrip('\r\n')
+                except serial.SerialException as e:
+                    _terminal_log(f"[erro serial] {e}", tag='error')
+                    return
+                if line:
+                    _terminal_log(line, tag='rx')
+                    got_any = True
+                else:
+                    # timeout sem dados
+                    if got_any:
+                        break
+
+    except serial.SerialException as e:
+        _terminal_log(f"[erro] {e}", tag='error')
+    except Exception as e:
+        _terminal_log(f"[erro inesperado] {e}", tag='error')
+
+def _terminal_send_preset(cmd):
+    """Coloca um comando pré-definido no entry e envia."""
+    terminal_entry.delete(0, tk.END)
+    terminal_entry.insert(0, cmd)
+    _terminal_send()
+
+def _terminal_clear_and_focus(event=None):
+    _clear_terminal()
+    terminal_entry.focus_set()
+    return "break"
+
 ################ INSTANCIAR MASTER
 
 SACC_root = tk.Tk()
@@ -485,15 +601,6 @@ SACC_root.title(APP_NAME)
 SACC_root.minsize(MAIN_GEOMETRY[0], MAIN_GEOMETRY[1])
 SACC_root.maxsize(MAIN_GEOMETRY[0], MAIN_GEOMETRY[1])
 SACC_root.geometry(f"{MAIN_GEOMETRY[0]}x{MAIN_GEOMETRY[1]}+{MAIN_GEOMETRY[2]}+{MAIN_GEOMETRY[3]}")
-################
-
-
-################ VARIÁVEIS DINÂMICAS COMPLEMENTARES
-
-COM_SELECTED =      tk.StringVar(value="")
-CONN_CHECK =        tk.BooleanVar(value=False)
-RES_SELECTED =      tk.StringVar(value="")
-CHECK_PREP_TIME =   tk.BooleanVar(value=False)
 ################
 
 
@@ -507,14 +614,24 @@ else:
 ################
 
 
+################ VARIÁVEIS DINÂMICAS COMPLEMENTARES
+
+COM_SELECTED =      tk.StringVar(value="")
+CONN_CHECK =        tk.BooleanVar(value=False)
+RES_SELECTED =      tk.StringVar(value="")
+CHECK_PREP_TIME =   tk.BooleanVar(value=False)
+################
+
+
 ################ INÍCIO
 
 SACC_Notebook =     ttk.Notebook(SACC_root)
 SACC_Params =       ttk.Frame(SACC_Notebook)
 SACC_Medicao =      ttk.Frame(SACC_Notebook)
+SACC_Terminal =     ttk.Frame(SACC_Notebook)
 SACC_Creditos =     ttk.Frame(SACC_Notebook)
 
-OBJ_FRAMES = [SACC_Params, SACC_Medicao, SACC_Creditos]
+OBJ_FRAMES = [SACC_Params, SACC_Medicao, SACC_Terminal, SACC_Creditos]
 
 for frame, name in zip(OBJ_FRAMES, NOTEBOOK_FRAMES):
     SACC_Notebook.add(frame, text=name)
@@ -663,9 +780,67 @@ start_button.place(x=CANVAS_DIMS[1][0] / 2, y=100, anchor='center')
 stop_button = ttk.Button(OBJ_FRAMES[1], text='Parar',command=StopMeasurement, state="disabled")
 stop_button.place(x=CANVAS_DIMS[1][0] / 2, y=150, anchor='center')
 
+export_button = ttk.Button(OBJ_FRAMES[1], text='Exportar resultados',command=StopMeasurement, state="disabled")
+export_button.place(x=CANVAS_DIMS[1][0] / 2, y=200, anchor='center')
+
+
+## FRAME TERMINAL
+
+terminal_frame = tk.Frame(OBJ_FRAMES[2], bg='black')
+terminal_frame.place(x=20, y=70)
+
+# Log de envio/recepção
+terminal_text = tk.Text(
+    terminal_frame,
+    width=70,
+    height=17,
+    bg='blue',
+    fg='#00ff00',
+    insertbackground='#00ff00',
+    font=('Courier', 10),
+    wrap='word',
+    state='disabled',
+)
+terminal_text.pack(side='left', fill='both', expand=True)
+
+terminal_scroll = ttk.Scrollbar(terminal_frame, command=terminal_text.yview)
+terminal_scroll.pack(side='right', fill='y')
+terminal_text.configure(yscrollcommand=terminal_scroll.set)
+
+terminal_text.tag_configure('tx',    foreground='#00d0ff')  # azul claro (enviado)
+terminal_text.tag_configure('rx',    foreground='#00ff00')  # verde (recebido)
+terminal_text.tag_configure('error', foreground='#ff4040')  # vermelho
+terminal_text.tag_configure('info',  foreground='#8080ff')  # azul
+
+# Entrada de comando + botão
+terminal_input_row = tk.Frame(OBJ_FRAMES[2], bg='black')
+terminal_input_row.place(x=0, y=400)
+
+terminal_entry = ttk.Entry(terminal_input_row, width=50, font=('Courier', 10))
+terminal_entry.pack(side='left', padx=(25, 5))
+terminal_entry.bind('<Return>', lambda e: _terminal_send())
+
+terminal_send_button = ttk.Button(terminal_input_row, text='Enviar', command=_terminal_send, state="disabled")
+terminal_send_button.pack(side='left', padx=5)
+
+terminal_presets_row = tk.Frame(OBJ_FRAMES[2], bg='black')
+terminal_presets_row.place(x=25, y=440)
+
+terminal_idn_button = ttk.Button(terminal_presets_row, text='*IDN?',command=lambda: _terminal_send_preset('*IDN?'),state='disabled').pack(side='left', padx=3)
+terminal_stop_button = ttk.Button(terminal_presets_row, text='STOP',command=lambda: _terminal_send_preset('STOP'),state='disabled').pack(side='left', padx=3)
+terminal_strt_button = ttk.Button(terminal_presets_row, text='STRT',command=lambda: _terminal_send_preset('STRT'),state='disabled').pack(side='left', padx=3)
+terminal_xavg_button = ttk.Button(terminal_presets_row, text='XAVG?',command=lambda: _terminal_send_preset('XAVG?'),state='disabled').pack(side='left', padx=3)
+terminal_limpar_button = ttk.Button(terminal_presets_row, text='Limpar Log',command=_clear_terminal,state='disabled').pack(side='right', padx=(89, 3))
+
+# Explicação rápida
+tk.Label(OBJ_FRAMES[2],text="Envie comandos ASCII para o SR620 (Enter envia).",bg='black', fg='#cccccc', font=FONT_TEXT).place(x=20, y=550)
+
+terminal_entry.bind('<Control-l>', _terminal_clear_and_focus)
+
+
 SACC_Notebook.pack(expand=True, fill="both")
 
-ttk.Label(OBJ_FRAMES[2], text="Carlos, Castro & Mizael. 2026", background='black', foreground='white').place(x=CANVAS_DIMS[1][0] / 5, y=80, anchor='w')
+ttk.Label(OBJ_FRAMES[3], text="Carlos, Castro & Mizael. 2026",background='black', foreground='white').place(x=CANVAS_DIMS[1][0] / 5, y=80, anchor='w')
 
 SACC_root.protocol("WM_DELETE_WINDOW", on_close)
 
